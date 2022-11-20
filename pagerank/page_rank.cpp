@@ -51,35 +51,24 @@ void pageRank(Graph g, double* solution, double damping, double convergence)
      }
 
    */
-
- int numNodes = num_nodes(g);
+  int maxThreads = omp_get_max_threads();
+  int numNodes = num_nodes(g);
+  double equal_prob = 1.0 / numNodes;
   
   double * score_old = (double *)std::malloc(sizeof(double) * numNodes);   // old scores
   double * score_new = (double *)std::malloc(sizeof(double) * numNodes);   // new scores
-  Vertex * loners = nullptr;
-
+  Vertex * loners =    (Vertex *)std::malloc(sizeof(double) * numNodes);;
+  
   int num_loners = 0;
+  #pragma omp parallel for num_threads(maxThreads)
   for (int v = 0; v < numNodes; v++) {
+    score_old[v] = equal_prob;
     if (outgoing_size(g, v) == 0) {
-      num_loners++;
+      #pragma opm atomic
+      loners[num_loners++] = v;
     }
   }
-
-  loners = (Vertex*)std::malloc(sizeof(Vertex) * num_loners);
-  int ptr = 0;
-  for (int v = 0; v < numNodes; v++) {
-    if (outgoing_size(g, v) == 0) {
-      loners[ptr++] = v; 
-    }
-  }
-  
-  
-  double equal_prob = 1.0 / numNodes;
-  for (int i = 0; i < numNodes; ++i) {
-    score_old[i] = equal_prob;
-  }
-  
-  
+  #pragma omp barrier
   
   /*
      CS149 students: Implement the page rank algorithm here.  You
@@ -121,6 +110,12 @@ void pageRank(Graph g, double* solution, double damping, double convergence)
       // Vertex is typedef'ed to an int. Vertex* points into g.outgoing_edges[]
       score_new[i] = (damping * score_new[i]) + (1.0 - damping) /  numNodes;
     }
+
+    double sum_loners = 0.0;
+    for (Vertex* v = loners; v < loners + num_loners; v++) {
+        sum_loners += damping * score_old[*v] / numNodes; 
+    }
+    
     // std::cout << "C2" << std::endl;
     // score_new[vi] += sum over all nodes v in graph with no outgoing edges
     //                      { damping * score_old[v] / numNodes }
@@ -128,9 +123,8 @@ void pageRank(Graph g, double* solution, double damping, double convergence)
       // Vertex is typedef'ed to an int. Vertex* points into g.outgoing_edges[]
       // if (i % 1000 == 0)
         // std::cout << "Doing outter " << i << std::endl;
-      for (Vertex* v = loners; v < loners + num_loners; v++) {
-        score_new[i] += damping * score_old[*v] / numNodes; 
-      }
+      score_new[i] += sum_loners; 
+      
     }
     // std::cout << "C3" << std::endl;
     // compute how much per-node scores have changed
