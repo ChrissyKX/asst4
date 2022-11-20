@@ -164,4 +164,7 @@ void pageRank(Graph g, double* solution, double damping, double convergence)
     // Vertex is typedef'ed to an int. Vertex* points into g.outgoing_edges[]
     solution[i] = score_new[i];
   }
+  std::free(score_old);
+  std::free(score_new);
+  std::free(loners);
 }
