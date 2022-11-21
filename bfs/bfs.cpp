@@ -11,6 +11,7 @@
 
 #define ROOT_NODE_ID 0
 #define NOT_VISITED_MARKER -1
+#define VERBOSE 1
 
 void vertex_set_clear(vertex_set* list) {
     list->count = 0;
@@ -32,6 +33,7 @@ void top_down_step(
     int* distances)
 {
 
+#pragma omp parallel for schedule(dynamic, 128)
     for (int i=0; i<frontier->count; i++) {
 
         int node = frontier->vertices[i];
@@ -41,16 +43,40 @@ void top_down_step(
                            ? g->num_edges
                            : g->outgoing_starts[node + 1];
 
+        if (start_edge == end_edge) continue;
+        
         // attempt to add all neighbors to the new frontier
+        // #pragma omp parallel for
+        int count = 0;
+        double tmp[end_edge - start_edge];
         for (int neighbor=start_edge; neighbor<end_edge; neighbor++) {
             int outgoing = g->outgoing_edges[neighbor];
 
             if (distances[outgoing] == NOT_VISITED_MARKER) {
                 distances[outgoing] = distances[node] + 1;
-                int index = new_frontier->count++;
-                new_frontier->vertices[index] = outgoing;
+
+                //int old_index = 0;
+                //#pragma omp critical
+                //{old_index = new_frontier->count++;}
+                // int old_index = new_frontier->count;
+                // while (!__sync_bool_compare_and_swap(&(new_frontier->count), old_index, old_index + 1)) {
+                //     old_index = new_frontier->count;
+                // }
+                
+                //new_frontier->vertices[old_index] = outgoing;
+                tmp[count++] = outgoing;
             }
         }
+
+        int old_index = new_frontier->count;
+        while (!__sync_bool_compare_and_swap(&(new_frontier->count), old_index, old_index + count)) {
+            old_index = new_frontier->count;
+        }
+
+        for (int j = old_index;j < old_index + count; j++) {
+            new_frontier->vertices[j] = tmp[j - old_index];
+        }
+        
     }
 }
 
@@ -69,6 +95,7 @@ void bfs_top_down(Graph graph, solution* sol) {
     vertex_set* new_frontier = &list2;
 
     // initialize all nodes to NOT_VISITED
+    #pragma omp parallel for
     for (int i=0; i<graph->num_nodes; i++)
         sol->distances[i] = NOT_VISITED_MARKER;
 
