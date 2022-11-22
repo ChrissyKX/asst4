@@ -11,7 +11,7 @@
 
 #define ROOT_NODE_ID 0
 #define NOT_VISITED_MARKER -1
-#define VERBOSE 1
+//#define VERBOSE 1
 
 void vertex_set_clear(vertex_set* list) {
     list->count = 0;
@@ -32,14 +32,14 @@ void top_down_step(
     vertex_set* new_frontier,
     int* distances)
 {
-    int BUFSIZE = 32;
+    int BUFSIZE = 64;
 #pragma omp parallel
 {
     double buf_frontier[BUFSIZE];
     int count = 0;
-    // double wtime = omp_get_wtime();
+    double wtime = 0;
        
-    #pragma omp for schedule(static)
+    #pragma omp for schedule(auto)
     for (int i=0; i<frontier->count; i++) {
 
         int node = frontier->vertices[i];
@@ -52,41 +52,33 @@ void top_down_step(
         if (start_edge == end_edge) continue;
         
         // attempt to add all neighbors to the new frontier
-        // #pragma omp parallel for
-        // int count = 0;
-        // double tmp[end_edge - start_edge];
+
         for (int neighbor=start_edge; neighbor<end_edge; neighbor++) {
+            
             int outgoing = g->outgoing_edges[neighbor];
 
             if (distances[outgoing] == NOT_VISITED_MARKER) {
                 distances[outgoing] = distances[node] + 1;
-
-                //int old_index = 0;
-                //#pragma omp critical
-                //{old_index = new_frontier->count++;}
-                // int old_index = new_frontier->count;
-                // while (!__sync_bool_compare_and_swap(&(new_frontier->count), old_index, old_index + 1)) {
-                //     old_index = new_frontier->count;
-                // }
-                
-                //new_frontier->vertices[old_index] = outgoing;
                 buf_frontier[count++] = outgoing;
                 
                 if (count == BUFSIZE) {
                     // flush the buffer
+
                     int old_index = new_frontier->count;
                     while (!__sync_bool_compare_and_swap(&(new_frontier->count), old_index, old_index + count)) {
                         old_index = new_frontier->count;
                     }
-             
+
+                    //double start = omp_get_wtime();
                     for (int j = old_index;j < old_index + count; j++) {
                         new_frontier->vertices[j] = buf_frontier[j - old_index];
                     }
-
+                    //wtime += omp_get_wtime() - start;              
                     count = 0;
                 }
             }
         }
+         
     }
 
     if (count > 0) {
