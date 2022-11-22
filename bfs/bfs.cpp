@@ -32,8 +32,14 @@ void top_down_step(
     vertex_set* new_frontier,
     int* distances)
 {
-
-#pragma omp parallel for schedule(dynamic, 128)
+    int BUFSIZE = 32;
+#pragma omp parallel
+{
+    double buf_frontier[BUFSIZE];
+    int count = 0;
+    // double wtime = omp_get_wtime();
+       
+    #pragma omp for schedule(static)
     for (int i=0; i<frontier->count; i++) {
 
         int node = frontier->vertices[i];
@@ -47,8 +53,8 @@ void top_down_step(
         
         // attempt to add all neighbors to the new frontier
         // #pragma omp parallel for
-        int count = 0;
-        double tmp[end_edge - start_edge];
+        // int count = 0;
+        // double tmp[end_edge - start_edge];
         for (int neighbor=start_edge; neighbor<end_edge; neighbor++) {
             int outgoing = g->outgoing_edges[neighbor];
 
@@ -64,20 +70,39 @@ void top_down_step(
                 // }
                 
                 //new_frontier->vertices[old_index] = outgoing;
-                tmp[count++] = outgoing;
+                buf_frontier[count++] = outgoing;
+                
+                if (count == BUFSIZE) {
+                    // flush the buffer
+                    int old_index = new_frontier->count;
+                    while (!__sync_bool_compare_and_swap(&(new_frontier->count), old_index, old_index + count)) {
+                        old_index = new_frontier->count;
+                    }
+             
+                    for (int j = old_index;j < old_index + count; j++) {
+                        new_frontier->vertices[j] = buf_frontier[j - old_index];
+                    }
+
+                    count = 0;
+                }
             }
         }
+    }
 
+    if (count > 0) {
         int old_index = new_frontier->count;
         while (!__sync_bool_compare_and_swap(&(new_frontier->count), old_index, old_index + count)) {
             old_index = new_frontier->count;
         }
-
+     
         for (int j = old_index;j < old_index + count; j++) {
-            new_frontier->vertices[j] = tmp[j - old_index];
+            new_frontier->vertices[j] = buf_frontier[j - old_index];
         }
-        
     }
+
+    //wtime = omp_get_wtime() - wtime;
+    //printf( "Time taken by thread %d is %f\n", omp_get_thread_num(), wtime);
+}
 }
 
 // Implements top-down BFS.
