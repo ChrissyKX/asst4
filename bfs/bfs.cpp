@@ -142,19 +142,116 @@ void bfs_top_down(Graph graph, solution* sol) {
     }
 }
 
+int inline min(int a, int b) {
+    return a < b ? a : b;
+}
+
+int bottom_up_step(Graph g, int* distances,
+                    int frontier_version,
+                   int unvisited_count, int* unvisited, int* new_unvisited)
+{
+    int new_unvisited_count = 0;
+    int BUFSIZE = 64;
+ 
+#pragma omp parallel
+{
+    int buf_unvisited[BUFSIZE];
+    int count = 0;
+    
+    #pragma omp for schedule(auto)
+    for (int i = 0; i < unvisited_count; i++) {
+        int node = unvisited[i];
+        
+        int start_edge = g->incoming_starts[node];
+        int end_edge = (node == g->num_nodes - 1)
+                           ? g->num_edges
+                           : g->incoming_starts[node + 1];
+
+        
+        for (int neighbour = start_edge; neighbour < end_edge; neighbour++) {
+            int incoming = g->incoming_edges[neighbour];
+            if (distances[incoming] == frontier_version) {
+                distances[node] = distances[incoming] + 1;
+                                
+                break;
+            }
+        }
+        
+        if (distances[node] == NOT_VISITED_MARKER) {
+            buf_unvisited[count++] = node;
+
+            if (count == BUFSIZE) {
+                // flush the buffer
+                int old_count = new_unvisited_count;
+                while (!__sync_bool_compare_and_swap(&new_unvisited_count, old_count, old_count + count)) {
+                    old_count = new_unvisited_count;    
+                }
+                
+                for (int j = 0; j < count; j++) {
+                     new_unvisited[old_count + j] = buf_unvisited[j];
+                }
+                count = 0;
+            }          
+        }
+    }
+
+     int old_count = new_unvisited_count;
+     while (!__sync_bool_compare_and_swap(&new_unvisited_count, old_count, old_count + count)) {
+         old_count = new_unvisited_count;    
+     }
+                
+     for (int j = 0; j < count; j++) {
+         new_unvisited[old_count + j] = buf_unvisited[j];
+     }
+}
+    
+    return new_unvisited_count;
+}
+
 void bfs_bottom_up(Graph graph, solution* sol)
 {
-    // CS149 students:
-    //
-    // You will need to implement the "bottom up" BFS here as
-    // described in the handout.
-    //
-    // As a result of your code's execution, sol.distances should be
-    // correctly populated for all nodes in the graph.
-    //
-    // As was done in the top-down case, you may wish to organize your
-    // code by creating subroutine bottom_up_step() that is called in
-    // each step of the BFS process.
+    int* frontier = (int*)malloc(sizeof(int) * graph->num_nodes);
+    //int* new_frontier = (int*)malloc(sizeof(int) * graph->num_nodes); 
+    int* unvisited = (int*)malloc(sizeof(int) * graph->num_nodes);  // dense unvisited set
+    int* new_unvisited =  (int*)malloc(sizeof(int) * graph->num_nodes);
+
+    // initialize all nodes to NOT_VISITED
+    #pragma omp parallel for
+    for (int i=0; i<graph->num_nodes; i++) {
+        sol->distances[i] = NOT_VISITED_MARKER;
+        if (i < ROOT_NODE_ID) {
+            unvisited[i] = i;
+        } else if (i > ROOT_NODE_ID) {
+            unvisited[i - 1] = i;
+        }
+    }
+    sol->distances[ROOT_NODE_ID] = 0;
+    int unvisited_count = graph->num_nodes - 1;
+        
+    int frontier_count = 1;
+    int frontier_version = 0;
+    //frontier[ROOT_NODE_ID] = frontier_version; 
+        
+    while (frontier_count != 0) {
+        int new_unvisited_count = bottom_up_step(graph, sol->distances,
+                       frontier_version,
+                       unvisited_count, unvisited, new_unvisited);
+
+        frontier_version++;
+        frontier_count = new_unvisited_count - unvisited_count;
+        unvisited_count = new_unvisited_count;
+
+        //swap pointers
+        int* tmp = unvisited;
+        unvisited = new_unvisited;
+        new_unvisited = tmp;
+
+        // tmp = frontier;
+        // frontier = new_frontier;
+        // new_frontier = tmp;
+
+       
+    }
 }
 
 void bfs_hybrid(Graph graph, solution* sol)
