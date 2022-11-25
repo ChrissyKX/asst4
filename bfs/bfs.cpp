@@ -73,6 +73,7 @@ void top_down_step(
                     for (int j = old_index;j < old_index + count; j++) {
                         new_frontier->vertices[j] = buf_frontier[j - old_index];
                     }
+                    
                     //wtime += omp_get_wtime() - start;              
                     count = 0;
                 }
@@ -146,111 +147,68 @@ int inline min(int a, int b) {
     return a < b ? a : b;
 }
 
-int bottom_up_step(Graph g, int* distances,
-                    int frontier_version,
-                   int unvisited_count, int* unvisited, int* new_unvisited)
+int inline bottom_up_step(Graph g, int* distances,
+                   int frontier_version, int* frontier)
 {
-    int new_unvisited_count = 0;
-    int BUFSIZE = 64;
- 
-#pragma omp parallel
-{
-    int buf_unvisited[BUFSIZE];
-    int count = 0;
+    int new_frontier_count = 0;
     
-    #pragma omp for schedule(auto)
-    for (int i = 0; i < unvisited_count; i++) {
-        int node = unvisited[i];
-        
-        int start_edge = g->incoming_starts[node];
-        int end_edge = (node == g->num_nodes - 1)
-                           ? g->num_edges
-                           : g->incoming_starts[node + 1];
+#pragma omp parallel for schedule(dynamic, 4096) reduction(+:new_frontier_count)
+    for (int node = 0; node < g->num_nodes; node++) {
+        if (distances[node] == NOT_VISITED_MARKER) {        
+                  
+            int start_edge = g->incoming_starts[node];
+            int end_edge = (node == g->num_nodes - 1)
+                ? g->num_edges
+                : g->incoming_starts[node + 1];
 
         
-        for (int neighbour = start_edge; neighbour < end_edge; neighbour++) {
-            int incoming = g->incoming_edges[neighbour];
-            if (distances[incoming] == frontier_version) {
-                distances[node] = distances[incoming] + 1;
-                                
-                break;
+            for (int neighbour = start_edge; neighbour < end_edge; neighbour++) {
+                int incoming = g->incoming_edges[neighbour];
+                if (frontier[incoming] == frontier_version) {
+                    distances[node] = distances[incoming] + 1;
+                    frontier[node] = frontier_version + 1;
+                    new_frontier_count++;             
+                    break;
+                }
             }
         }
         
-        if (distances[node] == NOT_VISITED_MARKER) {
-            buf_unvisited[count++] = node;
-
-            if (count == BUFSIZE) {
-                // flush the buffer
-                int old_count = new_unvisited_count;
-                while (!__sync_bool_compare_and_swap(&new_unvisited_count, old_count, old_count + count)) {
-                    old_count = new_unvisited_count;    
-                }
-                
-                for (int j = 0; j < count; j++) {
-                     new_unvisited[old_count + j] = buf_unvisited[j];
-                }
-                count = 0;
-            }          
-        }
     }
 
-     int old_count = new_unvisited_count;
-     while (!__sync_bool_compare_and_swap(&new_unvisited_count, old_count, old_count + count)) {
-         old_count = new_unvisited_count;    
-     }
-                
-     for (int j = 0; j < count; j++) {
-         new_unvisited[old_count + j] = buf_unvisited[j];
-     }
-}
-    
-    return new_unvisited_count;
+    return new_frontier_count;
 }
 
 void bfs_bottom_up(Graph graph, solution* sol)
 {
-    int* frontier = (int*)malloc(sizeof(int) * graph->num_nodes);
-    //int* new_frontier = (int*)malloc(sizeof(int) * graph->num_nodes); 
-    int* unvisited = (int*)malloc(sizeof(int) * graph->num_nodes);  // dense unvisited set
-    int* new_unvisited =  (int*)malloc(sizeof(int) * graph->num_nodes);
+    
+    int* frontier = (int*)calloc(graph->num_nodes, sizeof(int)); 
+    //int* frontier =  (int*)malloc(sizeof(int) * graph->num_nodes);
 
     // initialize all nodes to NOT_VISITED
-    #pragma omp parallel for
+#pragma omp parallel for schedule(dynamic, 4096)
     for (int i=0; i<graph->num_nodes; i++) {
         sol->distances[i] = NOT_VISITED_MARKER;
-        if (i < ROOT_NODE_ID) {
-            unvisited[i] = i;
-        } else if (i > ROOT_NODE_ID) {
-            unvisited[i - 1] = i;
-        }
+        //frontier[i] = 0;
     }
     sol->distances[ROOT_NODE_ID] = 0;
-    int unvisited_count = graph->num_nodes - 1;
         
     int frontier_count = 1;
-    int frontier_version = 0;
-    //frontier[ROOT_NODE_ID] = frontier_version; 
-        
+    int frontier_version = 1;
+    frontier[ROOT_NODE_ID] = 1;
+             
     while (frontier_count != 0) {
-        int new_unvisited_count = bottom_up_step(graph, sol->distances,
-                       frontier_version,
-                       unvisited_count, unvisited, new_unvisited);
-
+#ifdef VERBOSE
+        double start_time = CycleTimer::currentSeconds();
+#endif
+        
+        frontier_count = bottom_up_step(graph, sol->distances,
+                                        frontier_version, frontier);
+#ifdef VERBOSE
+    double end_time = CycleTimer::currentSeconds();
+    printf("frontier=%-10d %.4f sec\n", frontier_count, end_time - start_time);
+#endif
         frontier_version++;
-        frontier_count = new_unvisited_count - unvisited_count;
-        unvisited_count = new_unvisited_count;
-
-        //swap pointers
-        int* tmp = unvisited;
-        unvisited = new_unvisited;
-        new_unvisited = tmp;
-
-        // tmp = frontier;
-        // frontier = new_frontier;
-        // new_frontier = tmp;
-
-       
+   
     }
 }
 
