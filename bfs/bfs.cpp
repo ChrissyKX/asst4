@@ -11,6 +11,8 @@
 
 #define ROOT_NODE_ID 0
 #define NOT_VISITED_MARKER -1
+#define BUFSIZE 64
+#define CHUNKSIZE 10000 
 //#define VERBOSE 1
 
 void vertex_set_clear(vertex_set* list) {
@@ -32,7 +34,6 @@ void top_down_step(
     vertex_set* new_frontier,
     int* distances)
 {
-    int BUFSIZE = 64;
 #pragma omp parallel
 {
     double buf_frontier[BUFSIZE];
@@ -99,15 +100,14 @@ void top_down_step(
 int top_down_stepv2(
     Graph g,
     int* distances,
-    int frontier_version,
-    int* frontier)
+    int frontier_version)
 {
     
     int new_frontier_count = 0;   
-#pragma omp parallel for schedule(dynamic, 4096) reduction(+:new_frontier_count)
+#pragma omp parallel for schedule(dynamic, CHUNKSIZE) reduction(+:new_frontier_count)
     for (int node=0; node<g->num_nodes; node++) {
 
-         if (distances[node] == frontier_version - 1) {        
+         if (distances[node] == frontier_version) {        
                   
             int start_edge = g->outgoing_starts[node];
             int end_edge = (node == g->num_nodes - 1)
@@ -118,11 +118,10 @@ int top_down_stepv2(
             for (int neighbour = start_edge; neighbour < end_edge; neighbour++) {
                 int outgoing = g->outgoing_edges[neighbour];
                 //if (node == ROOT_NODE_ID) printf("outgoing frontier version is %d\n", frontier[outgoing]);
-                if (frontier[outgoing] == 0) {  // if not a frontier/previous frontier
+                if (distances[outgoing] == NOT_VISITED_MARKER) {  // if not a frontier/previous frontier
                     //printf("encountered 0 at node %d\n", outgoing);
                     distances[outgoing] = distances[node] + 1;
-                    frontier[outgoing] = frontier_version + 1;
-                    new_frontier_count++;             
+		    new_frontier_count++;             
                 }
             }
         }         
@@ -177,11 +176,11 @@ void bfs_top_down(Graph graph, solution* sol) {
 }
 
 int bottom_up_step(Graph g, int* distances,
-                   int frontier_version, int* frontier)
+                   int frontier_version)
 {
     int new_frontier_count = 0;
     
-#pragma omp parallel for schedule(dynamic, 4096) reduction(+:new_frontier_count)
+#pragma omp parallel for schedule(dynamic, CHUNKSIZE) reduction(+:new_frontier_count)
     for (int node = 0; node < g->num_nodes; node++) {
         if (distances[node] == NOT_VISITED_MARKER) {        
                   
@@ -193,9 +192,9 @@ int bottom_up_step(Graph g, int* distances,
         
             for (int neighbour = start_edge; neighbour < end_edge; neighbour++) {
                 int incoming = g->incoming_edges[neighbour];
-                if (frontier[incoming] == frontier_version) {
+                if (distances[incoming] == frontier_version) {
                     distances[node] = distances[incoming] + 1;
-                    frontier[node] = frontier_version + 1;
+                    //frontier[node] = frontier_version + 1;
                     new_frontier_count++;             
                     break;
                 }
@@ -208,12 +207,10 @@ int bottom_up_step(Graph g, int* distances,
 }
 
 void bfs_bottom_up(Graph graph, solution* sol)
-{
-    
-    int* frontier = (int*)calloc(graph->num_nodes, sizeof(int)); 
+{ 
 
     // initialize all nodes to NOT_VISITED
-#pragma omp parallel for schedule(dynamic, 4096)
+#pragma omp parallel for schedule(dynamic, CHUNKSIZE)
     for (int i=0; i<graph->num_nodes; i++) {
         sol->distances[i] = NOT_VISITED_MARKER;
         //frontier[i] = 0;
@@ -221,16 +218,14 @@ void bfs_bottom_up(Graph graph, solution* sol)
     sol->distances[ROOT_NODE_ID] = 0;
         
     int frontier_count = 1;
-    int frontier_version = 1;
-    frontier[ROOT_NODE_ID] = 1;
+    int frontier_version = 0;
              
     while (frontier_count != 0) {
 #ifdef VERBOSE
         double start_time = CycleTimer::currentSeconds();
 #endif
         
-        frontier_count = bottom_up_step(graph, sol->distances,
-                                        frontier_version, frontier);
+        frontier_count = bottom_up_step(graph, sol->distances, frontier_version);
 #ifdef VERBOSE
     double end_time = CycleTimer::currentSeconds();
     printf("frontier=%-10d %.4f sec\n", frontier_count, end_time - start_time);
@@ -246,10 +241,9 @@ void bfs_hybrid(Graph graph, solution* sol)
     //
     // You will need to implement the "hybrid" BFS here as
     // described in the handout.
-    int* frontier = (int*)calloc(graph->num_nodes, sizeof(int)); 
-    
+      
     // initialize all nodes to NOT_VISITED
-#pragma omp parallel for schedule(dynamic, 4096)
+#pragma omp parallel for schedule(dynamic, CHUNKSIZE)
     for (int i=0; i<graph->num_nodes; i++) {
         sol->distances[i] = NOT_VISITED_MARKER;
     }
@@ -257,8 +251,7 @@ void bfs_hybrid(Graph graph, solution* sol)
     sol->distances[ROOT_NODE_ID] = 0;
         
     int frontier_count = 1;
-    int frontier_version = 1;
-    frontier[ROOT_NODE_ID] = 1;
+    int frontier_version = 0;   
     int unvisited_count = graph->num_nodes - 1;
              
     while (frontier_count != 0) {
@@ -266,9 +259,9 @@ void bfs_hybrid(Graph graph, solution* sol)
         double start_time = CycleTimer::currentSeconds();
 #endif
         if (unvisited_count < graph->num_nodes / 2) {
-            frontier_count = bottom_up_step(graph, sol->distances, frontier_version, frontier);
+            frontier_count = bottom_up_step(graph, sol->distances, frontier_version);
         } else {
-            frontier_count = top_down_stepv2(graph, sol->distances, frontier_version, frontier);
+            frontier_count = top_down_stepv2(graph, sol->distances, frontier_version);
         }
 
 #ifdef VERBOSE
