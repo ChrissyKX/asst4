@@ -37,9 +37,8 @@ void top_down_step(
 {
     double buf_frontier[BUFSIZE];
     int count = 0;
-    double wtime = 0;
-       
-    #pragma omp for schedule(auto)
+         
+#pragma omp for schedule(auto)
     for (int i=0; i<frontier->count; i++) {
 
         int node = frontier->vertices[i];
@@ -69,12 +68,11 @@ void top_down_step(
                         old_index = new_frontier->count;
                     }
 
-                    //double start = omp_get_wtime();
+                   
                     for (int j = old_index;j < old_index + count; j++) {
                         new_frontier->vertices[j] = buf_frontier[j - old_index];
                     }
-                    
-                    //wtime += omp_get_wtime() - start;              
+                                        
                     count = 0;
                 }
             }
@@ -178,11 +176,7 @@ void bfs_top_down(Graph graph, solution* sol) {
     }
 }
 
-int inline min(int a, int b) {
-    return a < b ? a : b;
-}
-
-int inline bottom_up_step(Graph g, int* distances,
+int bottom_up_step(Graph g, int* distances,
                    int frontier_version, int* frontier)
 {
     int new_frontier_count = 0;
@@ -217,7 +211,6 @@ void bfs_bottom_up(Graph graph, solution* sol)
 {
     
     int* frontier = (int*)calloc(graph->num_nodes, sizeof(int)); 
-    //int* frontier =  (int*)malloc(sizeof(int) * graph->num_nodes);
 
     // initialize all nodes to NOT_VISITED
 #pragma omp parallel for schedule(dynamic, 4096)
