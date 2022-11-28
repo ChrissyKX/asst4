@@ -98,6 +98,41 @@ void top_down_step(
 }
 }
 
+int top_down_stepv2(
+    Graph g,
+    int* distances,
+    int frontier_version,
+    int* frontier)
+{
+    
+    int new_frontier_count = 0;   
+#pragma omp parallel for schedule(dynamic, 4096) reduction(+:new_frontier_count)
+    for (int node=0; node<g->num_nodes; node++) {
+
+         if (distances[node] == frontier_version - 1) {        
+                  
+            int start_edge = g->outgoing_starts[node];
+            int end_edge = (node == g->num_nodes - 1)
+                ? g->num_edges
+                : g->outgoing_starts[node + 1];
+
+        
+            for (int neighbour = start_edge; neighbour < end_edge; neighbour++) {
+                int outgoing = g->outgoing_edges[neighbour];
+                //if (node == ROOT_NODE_ID) printf("outgoing frontier version is %d\n", frontier[outgoing]);
+                if (frontier[outgoing] == 0) {  // if not a frontier/previous frontier
+                    //printf("encountered 0 at node %d\n", outgoing);
+                    distances[outgoing] = distances[node] + 1;
+                    frontier[outgoing] = frontier_version + 1;
+                    new_frontier_count++;             
+                }
+            }
+        }         
+    }
+
+    return new_frontier_count;
+}
+
 // Implements top-down BFS.
 //
 // Result of execution is that, for each node in the graph, the
@@ -218,4 +253,36 @@ void bfs_hybrid(Graph graph, solution* sol)
     //
     // You will need to implement the "hybrid" BFS here as
     // described in the handout.
+    int* frontier = (int*)calloc(graph->num_nodes, sizeof(int)); 
+    
+    // initialize all nodes to NOT_VISITED
+#pragma omp parallel for schedule(dynamic, 4096)
+    for (int i=0; i<graph->num_nodes; i++) {
+        sol->distances[i] = NOT_VISITED_MARKER;
+    }
+    
+    sol->distances[ROOT_NODE_ID] = 0;
+        
+    int frontier_count = 1;
+    int frontier_version = 1;
+    frontier[ROOT_NODE_ID] = 1;
+    int unvisited_count = graph->num_nodes - 1;
+             
+    while (frontier_count != 0) {
+#ifdef VERBOSE
+        double start_time = CycleTimer::currentSeconds();
+#endif
+        if (unvisited_count < graph->num_nodes / 2) {
+            frontier_count = bottom_up_step(graph, sol->distances, frontier_version, frontier);
+        } else {
+            frontier_count = top_down_stepv2(graph, sol->distances, frontier_version, frontier);
+        }
+
+#ifdef VERBOSE
+        double end_time = CycleTimer::currentSeconds();
+        printf("frontier=%-10d %.4f sec\n", frontier_count, end_time - start_time);
+#endif
+        frontier_version++;
+        unvisited_count -= frontier_count;
+    }
 }
