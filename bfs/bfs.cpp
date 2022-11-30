@@ -173,6 +173,8 @@ void bfs_top_down(Graph graph, solution* sol) {
         frontier = new_frontier;
         new_frontier = tmp;
     }
+    free(list1.vertices);
+    free(list2.vertices);
 }
 
 int bottom_up_step(Graph g, int* distances,
