@@ -12,7 +12,7 @@
 #define ROOT_NODE_ID 0
 #define NOT_VISITED_MARKER -1
 #define BUFSIZE 64
-#define CHUNKSIZE 10000 
+#define CHUNKSIZE 12000 
 //#define VERBOSE 1
 
 void vertex_set_clear(vertex_set* list) {
@@ -258,7 +258,7 @@ void bfs_hybrid(Graph graph, solution* sol)
 #ifdef VERBOSE
         double start_time = CycleTimer::currentSeconds();
 #endif
-        if (unvisited_count < graph->num_nodes / 2) {
+        if (unvisited_count < frontier_count) {
             frontier_count = bottom_up_step(graph, sol->distances, frontier_version);
         } else {
             frontier_count = top_down_stepv2(graph, sol->distances, frontier_version);
